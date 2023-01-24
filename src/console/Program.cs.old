@@ -1,0 +1,206 @@
+﻿// See https://aka.ms/new-console-template for more information
+
+using System.ComponentModel.DataAnnotations;
+using Azure;
+using Azure.Core;
+using Azure.ResourceManager;
+using Azure.ResourceManager.Cdn;
+using Azure.ResourceManager.Cdn.Models;
+using Azure.ResourceManager.Dns;
+using Azure.ResourceManager.Dns.Models;
+using lib;
+using lib.Configuration;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+Console.WriteLine("Hello, World!");
+
+var configuration = BuildConfiguration();
+var services = new ServiceCollection();
+
+services.Configure<CustomDomainConfig>(configuration.GetSection(nameof(CustomDomainConfig)));
+services.AddAzureSdk(configuration);
+services.AddLogging(builder => { builder.AddConsole(); });
+
+var serviceProvider = services.BuildServiceProvider();
+
+var arm = serviceProvider.GetRequiredService<ArmClient>();
+var config = serviceProvider.GetRequiredService<IOptions<CustomDomainConfig>>().Value;
+var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+
+arm.GetSubscriptions().GetAll();
+
+
+GetCustomDomainCollection(GetCdnProfile(config.Frontdoor.Id));
+
+var cdn = GetCdnProfile(config.Frontdoor.Id);
+var target = GetAfdEndpoint(cdn)
+    .Find(e => e.Get().Value.Data.Name.Equals("statapp2", StringComparison.OrdinalIgnoreCase));
+
+var existingCustom = GetCustomDomain(cdn, target, "test01", target.Data.Name);
+
+Response<FrontDoorCustomDomainResource> GetCustomDomain(ProfileResource profileResource,
+    FrontDoorEndpointResource frontDoorEndpointResource, string test01, string labsIsagoCh)
+{
+    var a = cdn.GetFrontDoorCustomDomain(generateCustomDomainName(test01, labsIsagoCh));
+    return a;
+}
+
+string validationToken = null;
+string customDomainId = null;
+if (!existingCustom.HasValue)
+{
+    var newCustom = CreateCustomDomain(
+        cdn,
+        target,
+        "test01",
+        "labs.isago.ch");
+
+    var newStat = newCustom.UpdateStatus();
+    while (!newCustom.HasCompleted)
+    {
+        newStat = newCustom.UpdateStatus();
+        logger.LogInformation($"Status: {newStat.Status} - waiting for 1000ms");
+        Thread.Sleep(1000);
+    }
+
+    validationToken = newCustom.Value.Data.ValidationProperties.ValidationToken;
+    customDomainId = newCustom.Value.Id;
+}
+else
+{
+    validationToken = existingCustom.Value.Data.ValidationProperties.ValidationToken;
+    customDomainId = existingCustom.Value.Id;
+}
+
+logger.LogInformation("Validation token: " + validationToken);
+logger.LogInformation("Custom domain id: " + customDomainId);
+
+// Create DNS Entries
+var dns = GetDnsZone(config.Dns.Id);
+CreateDnsRecord(dns, "test01", target);
+CreateTxtRecord(dns, $"_dnsauth.test01", validationToken
+    , target.Id);
+
+// Associate DNS Zone with Frontdoor
+var association = Associate(dns, target);
+logger.LogInformation(association.EndpointName + " is associated with " + string.Join(',', association.CustomDomains));
+
+FrontDoorRouteData Associate(DnsZoneResource dnsZoneResource, FrontDoorEndpointResource frontDoorEndpointResource,
+    string routeName = null)
+{
+    var routes = frontDoorEndpointResource.GetFrontDoorRoutes().GetAll();
+    FrontDoorRouteResource route = default(FrontDoorRouteResource);
+    if (string.IsNullOrWhiteSpace(routeName))
+    {
+        route = routes.First();
+    }
+    else
+    {
+        route = routes.Where(r => r.Get().Value.Data.Name.Equals(routeName, StringComparison.OrdinalIgnoreCase))
+            .First();
+    }
+
+    var update = new FrontDoorRoutePatch();
+    update.CustomDomains.Add(new FrontDoorActivatedResourceInfo
+    {
+        Id = new ResourceIdentifier(customDomainId)
+    });
+    var updater = route.Update(WaitUntil.Started, update);
+    while (!updater.HasCompleted)
+    {
+        updater.UpdateStatus();
+        logger.LogInformation($"waiting for 1000ms");
+        Thread.Sleep(1000);
+    }
+
+    return updater.Value.Data;
+}
+
+object CreateTxtRecord(DnsZoneResource dnsZoneResource, string entry, string value, string targetId)
+{
+    var a = new DnsTxtRecordInfo();
+    a.Values.Add(value);
+    var armOperation = dnsZoneResource.GetDnsTxtRecords()
+        .CreateOrUpdate(WaitUntil.Started, entry, new DnsTxtRecordData()
+        {
+            TtlInSeconds = (long?)TimeSpan.FromHours(1).TotalSeconds,
+            DnsTxtRecords = { a }
+        });
+
+    return armOperation;
+}
+
+void CreateDnsRecord(DnsZoneResource dnsZoneResource, string entry,
+    FrontDoorEndpointResource target)
+{
+    var armOperation = dnsZoneResource.GetDnsCnameRecords().CreateOrUpdate(WaitUntil.Started,
+        entry,
+        new DnsCnameRecordData()
+        {
+            TtlInSeconds = (long?)TimeSpan.FromHours(1).TotalSeconds,
+            Cname = target.Data.HostName
+        });
+
+    var a = armOperation.WaitForCompletionAsync().Result.Value;
+}
+
+
+foreach (var endpointResource in GetAfdEndpoint(GetCdnProfile(config.Frontdoor.Id)))
+{
+    logger.LogInformation(endpointResource.Data.Name);
+}
+
+ArmOperation<FrontDoorCustomDomainResource> CreateCustomDomain(ProfileResource profileResource,
+    FrontDoorEndpointResource target, string customDomain, string dnsZone)
+{
+    var worker = profileResource.GetFrontDoorCustomDomains().CreateOrUpdate(WaitUntil.Started,
+        generateCustomDomainName(customDomain, target.Data.Name),
+        new FrontDoorCustomDomainData()
+        {
+            HostName = $"{customDomain}.{dnsZone}"
+        });
+
+    return worker;
+}
+
+string generateCustomDomainName(string s, string target)
+{
+    return $"{s}{target.Replace("-", string.Empty)}";
+}
+
+List<FrontDoorEndpointResource> GetAfdEndpoint(ProfileResource profileResource)
+{
+    return profileResource.GetFrontDoorEndpoints().GetAll().ToList();
+}
+
+List<FrontDoorCustomDomainResource> GetCustomDomainCollection(ProfileResource profileResource)
+{
+    return profileResource.GetFrontDoorCustomDomains().GetAll().ToList();
+}
+
+DnsZoneResource GetDnsZone(string id)
+{
+    return arm.GetDnsZoneResource(new ResourceIdentifier(id))
+        .Get()
+        .Value;
+}
+
+ProfileResource GetCdnProfile(string id)
+{
+    return arm.GetProfileResource(new ResourceIdentifier(id))
+        .Get()
+        .Value;
+}
+
+IConfiguration BuildConfiguration()
+{
+    var configuration = new ConfigurationBuilder()
+        .SetBasePath(Directory.GetCurrentDirectory())
+        .AddJsonFile("appsettings.isago-labs.json")
+        .AddEnvironmentVariables()
+        .Build();
+    return configuration;
+}
