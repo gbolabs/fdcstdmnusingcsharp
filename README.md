@@ -28,7 +28,10 @@ The following point must be configured and setup to ensure a proper execution:
 
 ## Azure Permissions
 
-- `Contributor` role in a _ResourceGroup_ where the Azure FrontDoor, the DNS Zones and sub-Zones are located
+To follow the _least-priviledges-principle the following RBAC Roles are required to achieve the forseen operations:
+
+- `DNS Zone Contributor` applied at the resource-group level if we expect to create new ressources otherwise it can be applied on the configured `ParentZoneName` resource.
+- `CDN Profile Contributor` applied on the Azure FrontDoor Resources involved.
 
 Those permissions must be associated with the ManagedIdentity associated with the Azure Resource (either _System-assigned_ or _User-assigned_) and, when needed, with the _Service Principal_ used through environment variables. When, for development purposes, a user-login is being this person must be granted the same priviledges.
 
