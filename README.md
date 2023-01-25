@@ -10,7 +10,9 @@ The main objective is to create alternative custom domain for already existing F
 
 ## Content
 
-This repository contains C# code-fragments, an Assembly ready to be integrated within another .net 6+ application and a series of unit tests.
+This repository contains C# code-fragments using a `Lib`-project ready to be integrated within another .net 6+ application.
+
+A NuGet Package might be forseen in a coming feature to ease the integration of this library.
 
 ## Requirements
 
