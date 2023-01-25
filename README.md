@@ -1,18 +1,18 @@
 # TIV Custom Domain Creator
 
-# Objective
+## Objective
 
 With the code contains within the present repository we want to achieve the creation and management of Azure Resources out of an application.
 
-### Affected resources
+## Affected resources
 
 The main objective is to create alternative custom domain for already existing Frontdoor Endpoints.
 
-# Content
+## Content
 
 This repository contains C# code-fragments, an Assembly ready to be integrated within another .net 6+ application and a series of unit tests.
 
-# Requirements
+## Requirements
 
 The following point must be configured and setup to ensure a proper execution:
 
@@ -26,7 +26,7 @@ The following point must be configured and setup to ensure a proper execution:
     - An existing _AZ CLI_ login (using `az login -t {tenant}`)
     - VisualStudio or VisualStudioCode is connected with the tenant
 
-## Azure Permissions
+### Azure Permissions
 
 To follow the _least-priviledges-principle the following RBAC Roles are required to achieve the forseen operations:
 
@@ -42,10 +42,10 @@ More information:
   - <https://devblogs.microsoft.com/azure-sdk/authentication-and-the-azure-sdk/>
   - <https://learn.microsoft.com/en-us/dotnet/azure/sdk/authentication?tabs=command-line>
 
-# How-to-use
+## How-to-use
 
 1. Copy the whole `lib`-project within your application. Later-on a NuGet package could arise.
-2. Extend your application configuration with the following entries.
+1. Extend your application configuration with the following entries.
 
    ```json
      "FrontDoorFactoryConfig": {
@@ -60,7 +60,7 @@ More information:
     }
    ```
 
-3. Register the required Services and Configuration entries within your DI-Container using the following method.
+1. Register the required Services and Configuration entries within your DI-Container using the following method.
 
     ```csharp
     using lib;
@@ -69,7 +69,7 @@ More information:
     ...
     ```
 
-3. Retrieve from the DI (using `IServiceProvider`) an prepared instance of `CreateCustomHostNameJob`
+1. Retrieve from the DI (using `IServiceProvider`) an prepared instance of `CreateCustomHostNameJob`
 
    ```csharp
    // By invoking the service provider directly
@@ -84,7 +84,7 @@ More information:
    }
    ```
 
-4. Invoke one or the other method from the retrieved Job
+1. Invoke one or the other method from the retrieved Job
 
    ```csharp
    // Create a new custom domain within the default, configured using ParentZoneName, dns-zone
@@ -95,7 +95,7 @@ More information:
 
    ```
 
-## Configuration
+### Configuration
 
 The configuration requires the following entries, a sample configuration file can be found in the repo (_appsettings.sample.json_).
 
@@ -129,6 +129,6 @@ When using the `"CredentialType": "EnvironmentCredential"` configuration the fol
 |`AZURE_CLIENT_SECRET`||
 |`AZURE_TENANT_ID`|_Tenant Id issuing the above client_|
 
-# How-to-build
+## How-to-build
 
 - From the source, use either the `lib.csproj` project-file or `custom-domain-using-csharp.sln` solution-file in your favorite IDE.
